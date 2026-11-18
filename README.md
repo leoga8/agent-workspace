@@ -31,7 +31,7 @@ Pairs with [dotfiles](https://github.com/leoga8/dotfiles), which installs the to
 1. Install the dotfiles (tools and shims).
 2. Clone and set up:
    ```zsh
-   git clone git@github.com:<you>/agent-workspace.git ~/Documents/code
+   git clone https://github.com/<you>/agent-workspace.git ~/Documents/code
    ~/Documents/code/setup.zsh --check      # what's missing
    ~/Documents/code/setup.zsh              # creates configs, builds vaults, installs the safety hook
    ```
@@ -44,7 +44,7 @@ When the folder already has job content, you can't clone into it. Adopt the repo
 
 ```zsh
 cd ~/Documents/code
-git init && git remote add origin git@github.com:<you>/agent-workspace.git
+git init && git remote add origin https://github.com/<you>/agent-workspace.git
 git fetch && git reset origin/main && git branch -u origin/main   # no --hard: no files move yet
 git status                              # the framework files that differ
 git checkout -- .                       # take the repo's versions
