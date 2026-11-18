@@ -10,6 +10,7 @@
 #   without --apply it only prints what it would change
 
 source "${0:A:h}/lib.zsh"
+WORK_DIR="${0:A:h:h}"   # the copy this script is in
 OLD="$1" NEW="$2" APPLY="$3"
 if [[ -z "$OLD" || -z "$NEW" || ( -n "$APPLY" && "$APPLY" != --apply ) ]]; then
   echo "Usage: rename-planner.zsh <old> <new> [--apply]" >&2
