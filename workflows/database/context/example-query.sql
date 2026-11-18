@@ -1,3 +1,3 @@
--- Replace this with a real query written in your preferred style.
+-- Copy this to query-style.sql (not in git) and replace it with a real query in your preferred style.
 -- Both query and optimize (options 1 and 2 in /database) will use it as a style reference:
 -- keyword casing, indentation, aliasing, join format, line breaks, etc.

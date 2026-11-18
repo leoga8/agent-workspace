@@ -47,6 +47,12 @@
 - Check recurring processes section reflects current state
 - Propose any corrections
 
-### 5. done
+### 5. check workflows for drift
+- Scan `~/Documents/code/workflows/` directory structure
+- Verify AGENTS.md references to workflows/pipelines are still accurate
+- Flag any new workflow folders that don't have a corresponding pipeline option
+- Propose any corrections after confirmation
+
+### 6. done
 - Summarize what was updated this session
 - Remind the user to ask the planner for daily-open at the start of the next session

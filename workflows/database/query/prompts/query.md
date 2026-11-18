@@ -12,7 +12,7 @@
 - `*-schema.csv` files are the source of truth — ERDs are derived from them
 - ERDs provide relationship context from same-CSV inferred refs and explicit aliases maintained by database → refresh-erd
 - Not every `_id` column is a join key; some are external or business reference IDs and intentionally remain plain columns in the ERD
-- Read `~/Documents/code/workflows/database/context/example-query.sql` and follow its style exactly — casing, indentation, aliasing, join format, line breaks, and any other conventions it demonstrates
+- Read the style query, `~/Documents/code/workflows/database/context/query-style.sql` (your own, not in git), or `example-query.sql` beside it when there is none, and follow its style exactly — casing, indentation, aliasing, join format, line breaks, and any other conventions it demonstrates
 - Queries may span tables from multiple schemas — always confirm scope before building
 - Never assume joins, column meanings, filters, business definitions, date semantics, statuses, or aggregation grain
 - If there is any ambiguity, ask for human feedback before writing SQL
@@ -30,7 +30,7 @@
 - Use trailing commas
 - Include a semicolon on its own final line
 - Preserve the `where 1=1` style so filters can be toggled easily
-- Prefer joins formatted like `example-query.sql`
+- Prefer joins formatted like the style query
 - Prefer CTEs when they improve readability or avoid repeated logic
 - Avoid nested queries unless required for correctness or performance
 - Add comments for useful toggleable filters or non-obvious logic
@@ -49,7 +49,7 @@ Run this at the start of every session before any other step.
 5. For each selected CSV, check whether a corresponding `*-erd.dbml` exists, falling back to `*-erd.md` if needed:
    - If it exists: load it
    - If it does not exist: tell the user to ask the planner to run database → refresh-erd first, then stop
-6. Read `~/Documents/code/workflows/database/context/example-query.sql` before writing any SQL
+6. Read the style query before writing any SQL
 7. Confirm which CSVs, ERDs, and style reference are loaded before proceeding
 
 ---
@@ -71,7 +71,7 @@ Run this at the start of every session before any other step.
 - Ask the user to resolve ambiguities before writing SQL
 
 ### 3. build the query
-- Write the query following the style in `example-query.sql` exactly
+- Write the query following the style query exactly
 - Add inline comments for non-obvious joins or filters
 - Present the query clearly
 

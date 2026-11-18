@@ -12,7 +12,7 @@
 - `*-schema.csv` files are the source of truth — ERDs are derived from them
 - ERDs provide relationship context from same-CSV inferred refs and explicit aliases maintained by database → refresh-erd
 - Not every `_id` column is a join key; some are external or business reference IDs and intentionally remain plain columns in the ERD
-- Read `~/Documents/code/workflows/database/context/example-query.sql` and follow its style exactly when rewriting queries — casing, indentation, aliasing, join format, line breaks, and any other conventions it demonstrates
+- Read the style query, `~/Documents/code/workflows/database/context/query-style.sql` (your own, not in git), or `example-query.sql` beside it when there is none, and follow its style exactly when rewriting queries — casing, indentation, aliasing, join format, line breaks, and any other conventions it demonstrates
 - Default to behavior-preserving rewrites; do not change output shape, grain, filters, join semantics, or NULL handling unless the user approves the behavior change
 - Never assume joins, column meanings, filters, business definitions, date semantics, statuses, aggregation grain, or the original query's intent
 - If there is any ambiguity, ask for human feedback before rewriting SQL
@@ -30,7 +30,7 @@
 - Use trailing commas
 - Include a semicolon on its own final line
 - Preserve the `where 1=1` style so filters can be toggled easily
-- Prefer joins formatted like `example-query.sql`
+- Prefer joins formatted like the style query
 - Prefer CTEs when they improve readability or avoid repeated logic
 - Avoid nested queries unless required for correctness or performance
 - Add comments for useful toggleable filters or non-obvious logic
@@ -59,7 +59,7 @@ Run this at the start of every session before any other step.
 5. For each selected CSV, check whether a corresponding `*-erd.dbml` exists, falling back to `*-erd.md` if needed:
    - If it exists: load it
    - If it does not exist: tell the user to ask the planner to run database → refresh-erd first, then stop
-6. Read `~/Documents/code/workflows/database/context/example-query.sql` before rewriting any SQL
+6. Read the style query before rewriting any SQL
 7. Confirm which CSVs, ERDs, and style reference are loaded before proceeding
 
 ---
@@ -85,7 +85,7 @@ Run this at the start of every session before any other step.
 - Present a prioritized list of improvements
 - For each: describe the problem, the fix, and the expected impact
 - Separate behavior-preserving changes from optional behavior-changing alternatives
-- Show the rewritten query as a diff against the original, following the style in `example-query.sql`
+- Show the rewritten query as a diff against the original, following the style query
 - Wait for approval before proceeding
 
 ### 4. clustering recommendations
