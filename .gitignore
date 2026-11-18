@@ -1,0 +1,43 @@
+# agent-workspace: an allowlist. Everything is ignored unless listed here, so job
+# folders, vaults, cloned repos and secrets stay out without a rule of their own.
+/*
+!/.gitignore
+!/README.md
+!/AGENTS.md
+!/CLAUDE.md
+!/setup.zsh
+
+!/automation/
+/automation/settings.env
+/automation/safety-terms.txt
+!/orchestration/
+!/templates/
+
+# planner: the framework and the personal planner; job planners stay out
+!/planner/
+/planner/*
+!/planner/core.md
+!/planner/sources.md
+!/planner/assistant/
+/planner/*/config.md
+
+# generic domains only; job domains stay out
+!/pipelines/
+/pipelines/*
+!/pipelines/code/
+!/pipelines/database/
+!/pipelines/meta/
+!/pipelines/obsidian/
+!/workflows/
+/workflows/*
+!/workflows/code/
+!/workflows/database/
+!/workflows/meta/
+!/workflows/obsidian/
+/workflows/meta/sync-shared-repo/
+/workflows/obsidian/bills/context/
+/workflows/database/context/*
+!/workflows/database/context/example-*
+
+__pycache__/
+.DS_Store

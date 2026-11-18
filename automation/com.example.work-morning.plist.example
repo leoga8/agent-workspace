@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Work morning session launcher (Rex)
+  Fires once at 10:30am. Missed runs (laptop off, vacation) are silently skipped.
+  The Rex server starts on its own; open Rex to watch the session.
+
+  Install:
+    sed "s#/Users/YOU#$HOME#g" com.example.work-morning.plist.example > ~/Library/LaunchAgents/com.example.work-morning.plist
+    launchctl load ~/Library/LaunchAgents/com.example.work-morning.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.example.work-morning.plist
+    rm ~/Library/LaunchAgents/com.example.work-morning.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.work-morning</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>/Users/YOU/Documents/code/automation/work-morning.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/work-morning.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/work-morning.err</string>
+</dict>
+</plist>
