@@ -45,7 +45,7 @@ When the folder already has job content, you can't clone into it. Adopt the repo
 ```zsh
 cd ~/Documents/code
 git init && git remote add origin git@github.com:<you>/agent-workspace.git
-git fetch && git reset origin/main      # no --hard: no files move yet
+git fetch && git reset origin/main && git branch -u origin/main   # no --hard: no files move yet
 git status                              # the framework files that differ
 git checkout -- .                       # take the repo's versions
 ./setup.zsh --check
