@@ -53,8 +53,8 @@ if [[ -f "$PENDING_FILE" ]]; then
   PROMPT="$PROMPT. Also, there were $MISSED missed ticket checks while the session wasn't running: check Linear for any tickets assigned to you that are Todo or In Progress and aren't already in today's run, and add any new ones"
 fi
 
-# The orchestrator, at low effort: Sonnet in Claude Code, GPT-6 Sol in OpenCode
-# (subscription). OpenCode has no model flag for its TUI, so
+# The orchestrator, at low effort: Sonnet in Claude Code and in OpenCode (the
+# Claude Agent login, same subscription). OpenCode has no model flag for its TUI, so
 # ~/Documents/code/opencode.json sets it there
 if [[ "$TOOL" == opencode ]]; then
   ORCHESTRATOR=(opencode --prompt "$PROMPT")

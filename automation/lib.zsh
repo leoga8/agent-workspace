@@ -72,9 +72,9 @@ opencode_model() {
   local m=$(jq -r --arg t "$1" '.agents[$t].model // empty' "$OPENCODE_CONFIG" 2>/dev/null)
   if [[ -z "$m" ]]; then
     case "$1" in
-      fast) m=openai/gpt-6-luna#low ;;
-      deep) m=anthropic/claude-opus-5-5#high ;;
-      *)    m=openai/gpt-6-sol#medium ;;
+      fast) m=claude-agent/haiku#low ;;
+      deep) m=claude-agent/opus#high ;;
+      *)    m=claude-agent/sonnet#medium ;;
     esac
   fi
   echo "$m"
@@ -200,12 +200,11 @@ start_worker() {
   esac
   if [[ "$5" == opencode ]]; then
     # OpenCode's TUI takes no model flag, and the shared background service
-    # ignores per-process config: give the worker its own server and a config
-    # file with the tier's model (merged over the usual config)
-    mkdir -p "$WORKER_DIR"
-    local cfg="$WORKER_DIR/opencode-$2.json"
-    jq -n --arg m "$(opencode_model "$2")" '{"$schema": "https://opencode.ai/config.json", model: $m}' > "$cfg"
-    cmd=(env "OPENCODE_CONFIG=$cfg" opencode --standalone --prompt "$4")
+    # ignores per-process config: give the worker its own server and inline
+    # config with the tier's model. Inline config beats a project opencode.json
+    # (~/Documents/code has one for the orchestrator); a config file doesn't
+    local cfg=$(jq -cn --arg m "$(opencode_model "$2")" '{model: $m}')
+    cmd=(env "OPENCODE_CONFIG_CONTENT=$cfg" opencode --standalone --prompt "$4")
   else
     cmd=(claude --model "$model" --effort "$effort" "$4")
   fi
