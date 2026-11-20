@@ -20,7 +20,7 @@
 
 ### 1. check existing bills
 - Run `~/Documents/code/workflows/obsidian/bills/tools/check-existing-bills.sh <vault-root>` for the current month
-- Read monthly vendors from `~/Documents/code/workflows/obsidian/bills/context/vendors.txt` (lines under `# Monthly recurring bills`)
+- Read monthly vendors from `~/Documents/code/workflows/obsidian/bills/context/vendors.txt` (lines under `# Monthly recurring bills`). The vendor name is the text before any `#`; an inline `property VALUE` comment is the `vendor:` property to use (see step 4)
 - Compare: identify which vendors already have a note and which are missing
 - Present two lists: already created / still missing
 
@@ -39,11 +39,11 @@
 ### 4. confirm and create
 - Show the full list of bills to be created with their pre-filled fields:
   - `date`: YYYY-MM-01, or YYYY-MM-DD when the vendor has a `day DD` tag
-  - `vendor`: vendor name
+  - `vendor`: the vendor's `property VALUE` when it has one, otherwise the vendor name
   - `paid`: false
   - `amount`: (empty — to be filled when statement arrives)
 - Ask for confirmation before creating anything
-- If approved: run `~/Documents/code/workflows/obsidian/bills/tools/create-bill-note.sh <vault-root> "<vendor>" <YYYY-MM> [--day DD] [--yearly]` for each — pass `--day` / `--yearly` only when the vendor has those tags
+- If approved: run `~/Documents/code/workflows/obsidian/bills/tools/create-bill-note.sh <vault-root> "<vendor>" <YYYY-MM> [--day DD] [--yearly] [--property "<VALUE>"]` for each — pass `--day` / `--yearly` / `--property` only when the vendor has those tags. The note filename always uses the vendor name, never the property
 - Report each creation result
 
 ### 5. ad-hoc detection
