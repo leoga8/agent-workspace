@@ -5,6 +5,7 @@
 # ///
 """
 vault.py — Read-only Textual viewer for the work vault, previews rendered with glow.
+Tabs: Today's run, Attention (what needs you), Tickets, Runs, and Search (fzf over every note).
 Usage: uv run ~/Documents/code/automation/vault.py [--root ~/Downloads/code]
 """
 
@@ -19,6 +20,7 @@ import sys
 import textwrap
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -29,32 +31,31 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Input, OptionList, Static
+from textual.widgets.option_list import Option
 from textual.worker import get_current_worker
 
 import vault_notes as vn
 
 GLOW       = shutil.which("glow")
+FZF        = shutil.which("fzf")
 GLOW_STYLE = os.environ.get("VAULT_GLOW_STYLE", "dark")
 EDITOR     = os.environ.get("VAULT_EDITOR", "nvim")
 POLL_S     = 3   # seconds between change checks
 AGENT_POLL_S = 10  # seconds between agent status checks (a few rex calls each)
+SEARCH_MAX = 200   # search results shown
 
-# (label, folder relative to the vault). None = today's run; a list = fixed files.
+# (label, folder relative to the vault). None = today's run; "@…" = a view built from several notes.
+ATTENTION, SEARCH = "@attention", "@search"
 SECTIONS = [
     ("Today",     None),
+    ("Attention", ATTENTION),
     ("Tickets",   "raw/tickets"),
     ("Runs",      "raw/runs"),
-    ("Tasks",     "raw/tasks"),
-    ("Projects",  "raw/projects"),
-    ("Cases",     "raw/cases"),
-    ("Daily",     "raw/daily"),
-    ("Bookmarks", "raw/bookmarks"),
-    ("Important", "raw/_important"),
-    ("Hubs",      "hubs"),
-    ("Home",      ["home.md", "me.md"]),
+    ("Search",    SEARCH),
 ]
-SKIP_DIRS = {"templates"}
+SKIP_DIRS = {"templates"}   # not searched or followed by links
 
 ACCENT     = "#6ea8fe"   # running / current step
 LOG_TIME   = "#5f875f"   # log timestamps
@@ -105,12 +106,102 @@ def ticket_rows(vault, tickets):
     return rows
 
 def section_files(vault, where):
-    if isinstance(where, list):
-        return [vault / f for f in where if (vault / f).exists()]
     base = vault / where
+    if not base.is_dir():
+        return []
     if where == "raw/tickets":   # only the note named after its folder, not reports beside it
         return [d / f"{d.name}.md" for d in base.iterdir() if (d / f"{d.name}.md").exists()]
     return list(base.rglob("*.md"))
+
+def vault_files(vault):
+    """Every note in the vault except hidden folders and templates."""
+    out = []
+    for root, dirs, files in os.walk(vault):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in SKIP_DIRS]
+        out += [Path(root) / f for f in files if f.endswith(".md")]
+    return out
+
+def file_of(row):
+    """The note behind a row: attention drafts and search hits share their note's file."""
+    return row[3].get("file") or row[0]
+
+def all_tickets(vault):
+    return [vn.read_ticket(vault, f.parent.name) for f in section_files(vault, "raw/tickets")]
+
+def pending_drafts(tickets):
+    """[(ticket, draft)] for every unapproved draft on a ticket that's still open."""
+    return [(t, d) for t in tickets if t["status"] not in vn.CLOSED_LOCAL for d in t["drafts"]]
+
+ATTENTION_COLS = [(" ", 1), "ID", ("Title", TITLE_W), "Why", "Due", "Upd"]
+
+def attention_rows(vault, tickets):
+    """What needs you: failed, blocked, drafts to approve, overdue or due today, Linear out of step."""
+    found = []   # (priority, id, row)
+    today = date.today()
+    def row(t, key, why, style, search, info):
+        closed = t["status"] in vn.CLOSED_LOCAL
+        cells = [Text("●", style=STATUS_STYLE.get(t["status"], "dim")),
+                 Text(t["id"].removeprefix("linear-"), "dim" if closed else "bold"),
+                 wrap_title(t["title"], closed), Text(why, style),
+                 due_cell(t["due"], t["status"]), Text(vn.ago(t["updated"]), style="dim")]
+        return (key, cells, f"{t['id']} {search} {t['title']}".lower(), info, t.get("url", ""))
+    for t in tickets:
+        path   = ticket_path(vault, t["id"])
+        closed = t["status"] in vn.CLOSED_LOCAL
+        drafts = pending_drafts([t])
+        reasons = []   # (priority, text, style)
+        if t["status"] == "failed":  reasons.append((0, "failed", "red"))
+        if t["status"] == "blocked": reasons.append((1, "blocked", "yellow"))
+        if t["status"] == "awaiting_approval" and not drafts: reasons.append((2, "approval", "yellow"))
+        if t["due"] and not closed and t["due"] < today:  reasons.append((3, "overdue", "red"))
+        if t["due"] and not closed and t["due"] == today: reasons.append((4, "due today", "yellow"))
+        if vn.external_mismatch(t): reasons.append((5, "≠ Linear", "yellow"))
+        if reasons:
+            reasons.sort()
+            found.append((reasons[0][0], t["id"], row(
+                t, str(path), " · ".join(r[1] for r in reasons), reasons[0][2],
+                " ".join(r[1] for r in reasons), {"kind": "ticket", "ticket": t})))
+        for i, (_, d) in enumerate(drafts):
+            found.append((2, t["id"], row(
+                t, f"{path}|draft{i}", f"draft · {d['label']}"[:30], "yellow", f"draft {d['label']}",
+                {"kind": "ticket", "ticket": t, "file": str(path)})))
+    return [r for _, _, r in sorted(found, key=lambda x: x[:2])]
+
+SEARCH_COLS = [("Note", 24), ("Ln", 4), ("Match", 44)]
+
+def clip(text, n):
+    return text if len(text) <= n else text[:n - 1] + "…"
+
+def build_index(vault):
+    """Lines for fzf, 'note path <tab> line no. <tab> text', plus a line 0 per note with its name."""
+    out = []
+    for f in vault_files(vault):
+        rel = f.relative_to(vault).as_posix()
+        out.append(f"{rel}\t0\t{f.stem}")
+        try:
+            lines = f.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for n, line in enumerate(lines, 1):
+            line = line.strip().replace("\t", " ")
+            if line and line != "---":
+                out.append(f"{rel}\t{n}\t{line[:300]}")
+    return "\n".join(out)
+
+def search_rows(vault, index, query):
+    """fzf's best matches for `query` (exact terms, space = and) over the text field of the index."""
+    r = subprocess.run([FZF, "--filter", query, "--exact", "--delimiter", "\t", "--nth", "3"],
+                       input=index, capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=10)
+    rows = []
+    for line in r.stdout.splitlines()[:SEARCH_MAX]:
+        rel, no, text = line.split("\t", 2)
+        f, n = vault / rel, int(no)
+        cells = [Text(clip(f.stem, 24)), Text(str(n) if n else "·", "dim"),
+                 Text(clip(text if n else "(note name)", 44), "" if n else "dim")]
+        rows.append((f"{f}|{n}", cells, "", {"kind": "note", "path": f, "file": str(f),
+                                            "line": n, "match": text if n else ""}, ""))
+    return rows
 
 def build_section(vault, name, where):
     """Returns (title, columns, rows); a row is (key, cells, search_text, info, url)."""
@@ -121,34 +212,32 @@ def build_section(vault, name, where):
         title = f"{run.stem}  ·  {done}/{len(tickets)} done" if run else "no run file"
         return title, TICKET_COLS, ticket_rows(vault, tickets)
 
+    if where == SEARCH:
+        return ("press / to search every note" if FZF else "fzf not found: install it to search"), SEARCH_COLS, []
+
+    if where == ATTENTION:
+        rows = attention_rows(vault, all_tickets(vault))
+        return f"{len(rows)} need you", ATTENTION_COLS, rows
+
     files = section_files(vault, where)
     if where == "raw/tickets":
         tickets = [vn.read_ticket(vault, f.parent.name) for f in files]
         return f"{len(files)} tickets", TICKET_COLS, ticket_rows(vault, tickets)
 
+    # raw/runs: newest day first; each day's summaries, catalogs and reconcile
+    # tables go under that day's runs
     rows = []
-    if where in ("raw/runs", "raw/daily"):
-        # newest day first; in Runs, each day's summaries, catalogs and reconcile
-        # tables go under that day's runs
-        side = vn.is_run_side_file
-        for f in sorted(files, key=lambda f: (f.stem[:10], not side(f), f.stem), reverse=True):
-            title = vn.note_title(f)
-            title = title if title != f.stem else ""
-            if side(f):
-                cells = [Text(f.stem[:10], "dim"), Text(f"  ↳ {f.stem[11:]}", "dim")]
-            else:
-                cells = [f.stem[:10], title or f.stem[11:]]
-            rows.append((str(f), cells, f"{f.stem} {title}".lower(), {"kind": "note", "path": f}, ""))
-        runs = sum(1 for f in files if not side(f))
-        return f"{runs} notes" + (f" + {len(files) - runs} side files" if len(files) > runs else ""), ["Date", "Title"], rows
-
-    metas = [(f, vn.note_meta(f)) for f in files]
-    for f, m in sorted(metas, key=lambda x: x[1]["mtime"], reverse=True):
-        st = m["status"]
-        rows.append((str(f), [m["title"], Text(st, style=STATUS_STYLE.get(st, "dim")),
-                              due_cell(m["due"], st), Text(f"{m['mtime']:%Y-%m-%d}", style="dim")],
-                     f"{m['title']} {st} {f.stem}".lower(), {"kind": "note", "path": f, "meta": m}, m["url"]))
-    return f"{len(files)} notes", ["Title", "Status", "Due", "Modified"], rows
+    side = vn.is_run_side_file
+    for f in sorted(files, key=lambda f: (f.stem[:10], not side(f), f.stem), reverse=True):
+        title = vn.note_title(f)
+        title = title if title != f.stem else ""
+        if side(f):
+            cells = [Text(f.stem[:10], "dim"), Text(f"  ↳ {f.stem[11:]}", "dim")]
+        else:
+            cells = [f.stem[:10], title or f.stem[11:]]
+        rows.append((str(f), cells, f"{f.stem} {title}".lower(), {"kind": "note", "path": f}, ""))
+    runs = sum(1 for f in files if not side(f))
+    return f"{runs} notes" + (f" + {len(files) - runs} side files" if len(files) > runs else ""), ["Date", "Title"], rows
 
 def signature(vault, where):
     """Cheap change check: file count + newest mtime for the section."""
@@ -160,6 +249,10 @@ def signature(vault, where):
                 for t in vn.parse_run_ids(run):
                     files += [ticket_path(vault, t), *vn.result_files(ticket_path(vault, t).parent)]
                 files.insert(0, run)
+        elif where == SEARCH:
+            files = vault_files(vault)
+        elif where == ATTENTION:
+            files = section_files(vault, "raw/tickets")
         else:
             files = section_files(vault, where)
         mt = [f.stat().st_mtime for f in files if f.exists()]
@@ -209,6 +302,8 @@ def info_line(info, path, vault):
     rel = os.path.relpath(path, vault) if path else ""
     m = info.get("meta")
     out = Text(rel, "dim")
+    if info.get("line"):
+        out.append(f":{info['line']}", "dim")
     if m and m["url"]:
         out.append("\n" + m["url"], "dim")
     return out
@@ -275,6 +370,58 @@ def ticket_summary(t):
         parts.extend(log_line(e) for e in t["log"])
     return Group(*parts) if parts else Text("nothing to summarise", "dim")
 
+# ── wikilinks ────────────────────────────────────────────────────────────────
+
+WIKILINK = re.compile(r'!?\[\[([^\]\n]+)\]\]')
+
+def note_links(text):
+    """The [[targets]] in a note, in order, without |aliases or #headings."""
+    out = []
+    for raw in WIKILINK.findall(text):
+        target = raw.split("|", 1)[0].split("#", 1)[0].strip()
+        if target and target not in out:
+            out.append(target)
+    return out
+
+def link_index(vault):
+    """{lowercase note name: [paths]} for resolving links."""
+    names = {}
+    for f in vault_files(vault):
+        names.setdefault(f.stem.lower(), []).append(f)
+    return names
+
+def resolve_link(names, vault, target):
+    """Notes a [[target]] could mean: matched by name, narrowed by folders when the link has them."""
+    name = target.removesuffix(".md").lower()
+    hits = names.get(name.rsplit("/", 1)[-1], [])
+    if "/" in name:
+        hits = [f for f in hits if f.relative_to(vault).as_posix().lower().removesuffix(".md").endswith(name)] or hits
+    return hits
+
+class LinkPicker(ModalScreen):
+    """The links in the current note; Enter opens one, Esc closes."""
+    BINDINGS = [Binding("escape", "dismiss", "close"), Binding("q", "dismiss", "close", show=False)]
+    CSS = """
+    LinkPicker { align: center middle; }
+    #links { width: 70; max-height: 20; border: round $accent; background: $surface; }
+    """
+
+    def __init__(self, items):
+        super().__init__()
+        self.items = items   # [(label, path or None)]
+
+    def compose(self) -> ComposeResult:
+        yield OptionList(*[Option(label, id=str(i), disabled=path is None)
+                           for i, (label, path) in enumerate(self.items)], id="links")
+
+    def on_mount(self):
+        links = self.query_one("#links", OptionList)
+        links.border_title = "links"
+        links.focus()
+
+    def on_option_list_option_selected(self, event):
+        self.dismiss(self.items[int(event.option_id)][1])
+
 # ── app ──────────────────────────────────────────────────────────────────────
 
 class VaultApp(App):
@@ -306,6 +453,9 @@ class VaultApp(App):
         Binding("g", "glow", "glow"),
         Binding("e", "edit", "nvim"),
         Binding("o", "open_url", "open url"),
+        Binding("O", "open_obsidian", "obsidian"),
+        Binding("l", "links", "links"),
+        Binding("backspace", "back", "back"),
         Binding("s", "summary", "summary/full"),
         Binding("z", "zoom", "zoom"),
         Binding("r", "refresh", "refresh"),
@@ -315,12 +465,7 @@ class VaultApp(App):
         super().__init__()
         self.vault    = vault
         self.sections = [(n, w) for n, w in SECTIONS
-                         if w is None or isinstance(w, list) or (vault / w).is_dir()]
-        known = {w for _, w in self.sections if isinstance(w, str)}
-        for d in sorted((vault / "raw").iterdir()):   # folders added later still show up
-            rel = f"raw/{d.name}"
-            if d.is_dir() and rel not in known and d.name not in SKIP_DIRS:
-                self.sections.append((d.name.strip("_").title(), rel))
+                         if w is None or w.startswith("@") or (vault / w).is_dir()]
         self.where    = None
         self.rows     = []      # all rows of the current section
         self.by_key   = {}
@@ -328,6 +473,11 @@ class VaultApp(App):
         self.current  = None    # previewed row key
         self.cache    = {}      # (path, mtime, width) -> renderable
         self.summary  = True    # tickets: digest instead of the full note (s toggles)
+        self.index, self.index_sig = None, None   # search: fzf lines for every note, and their file signature
+        self.search_timer = None
+        self.detached = {}      # key -> row, for notes opened through a link (not in the table)
+        self.history  = []      # keys to go back to (backspace)
+        self.want_jump = False  # scroll the next render to the search match
 
     def compose(self) -> ComposeResult:
         yield Static(id="topbar")
@@ -364,12 +514,18 @@ class VaultApp(App):
     # sections ──
     def select_section(self, idx):
         name, where = self.sections[idx]
+        if (where == SEARCH) != (self.where == SEARCH):   # the box is the query here, a row filter elsewhere
+            f = self.query_one("#filter", Input)
+            f.value = ""
+            f.placeholder = "search notes (fzf)…" if where == SEARCH else "filter…"
+            f.set_class(where == SEARCH, "visible")
         self.where = where
         self.query_one("#notes").border_title = "TODAY'S RUN" if where is None else name.upper()
         self.load_section(name, where)
 
     def on_option_list_option_highlighted(self, event):
-        self.select_section(event.option_index)
+        if event.option_list.id == "sections":   # not the link picker's list
+            self.select_section(event.option_index)
 
     @work(thread=True, exclusive=True, group="table")
     def load_section(self, name, where):
@@ -391,10 +547,14 @@ class VaultApp(App):
             table.add_column(label, width=width)
         table.border_subtitle = title
         self.apply_filter(keep)
+        if where == SEARCH and self.query_one("#filter", Input).value.strip():
+            self.search_now()
 
     def apply_filter(self, keep=None):
         table = self.query_one("#notes", DataTable)
         q     = self.query_one("#filter", Input).value.strip().lower()
+        if self.where == SEARCH:   # the rows are already fzf's matches for the query
+            q = ""
         table.clear()
         for key, cells, search, _, _ in self.rows:
             if not q or all(w in search for w in q.split()):
@@ -408,22 +568,36 @@ class VaultApp(App):
 
     # preview ──
     def on_data_table_row_highlighted(self, event):
-        self.show_preview(event.row_key.value if event.row_key else None)
+        key = event.row_key.value if event.row_key else None
+        if self.current in self.detached and self.focused is not self.query_one("#notes"):
+            return   # reading a linked note: a table refresh shouldn't pull the preview away
+        if key != self.current:
+            self.history.clear(); self.detached.clear()
+        self.show_preview(key)
 
     def on_data_table_row_selected(self, event):
         self.query_one("#preview-scroll").focus()
+
+    def row_of(self, key):
+        return self.by_key.get(key) or self.detached.get(key)
+
+    def cur_file(self):
+        """The note file behind the previewed row, if any."""
+        row = self.row_of(self.current) if self.current else None
+        return file_of(row) if row and not self.current.startswith("missing:") else None
 
     def show_preview(self, key, force=False):
         changed = key != self.current
         self.current = key
         info, preview = self.query_one("#info", Static), self.query_one("#preview", Static)
         if not key:
-            info.update(""); preview.update(Text("no notes", "dim")); return
-        row = self.by_key.get(key)
+            info.update(""); preview.update(Text("nothing here", "dim")); return
+        row = self.row_of(key)
         if key.startswith("missing:"):
             info.update(info_line(row[3], None, self.vault) if row else "")
             preview.update(Text(f"no ticket note for {key[8:]}", "dim")); return
-        info.update(info_line(row[3], key, self.vault) if row else "")
+        path = file_of(row) if row else key
+        info.update(info_line(row[3], path, self.vault) if row else "")
         scroll = self.query_one("#preview-scroll")
         is_ticket = bool(row) and row[3].get("kind") == "ticket"
         scroll.border_title = "summary" if self.summary and is_ticket else "preview"
@@ -432,15 +606,17 @@ class VaultApp(App):
             if changed: scroll.scroll_home(animate=False)
             return
         width = max(scroll.size.width - 4, 30)
-        try: mtime = os.path.getmtime(key)
+        try: mtime = os.path.getmtime(path)
         except OSError: mtime = 0
-        ck = (key, mtime, width)
+        ck = (path, mtime, width)
+        self.want_jump = changed
         if ck in self.cache and not force:
             preview.update(self.cache[ck])
+            if changed: scroll.scroll_home(animate=False)
+            self.place(self.cache[ck], row)
         else:
-            self.render_preview(key, width, ck)
-        if changed:
-            self.query_one("#preview-scroll").scroll_home(animate=False)
+            self.render_preview(path, width, ck)
+            if changed: scroll.scroll_home(animate=False)
 
     @work(thread=True, exclusive=True, group="preview")
     def render_preview(self, path, width, ck):
@@ -453,8 +629,21 @@ class VaultApp(App):
 
     def set_preview(self, path, ck, r):
         self.cache[ck] = r
-        if path == self.current:
+        if path == self.cur_file():
             self.query_one("#preview", Static).update(r)
+            self.place(r, self.row_of(self.current))
+
+    def place(self, r, row):
+        """After a search hit renders, scroll to the matching line (best effort: glow rewraps text)."""
+        jump, self.want_jump = self.want_jump, False
+        needle = re.sub(r'\[\[|\]\]|[*_`#>|]', '', (row[3].get("match") or "") if row else "").strip()[:25]
+        if not (jump and needle and isinstance(r, Text)):
+            return
+        for y, line in enumerate(r.plain.splitlines()):
+            if needle in line:
+                scroll = self.query_one("#preview-scroll")
+                self.call_after_refresh(scroll.scroll_to, y=max(y - 2, 0), animate=False)
+                return
 
     def on_resize(self, event):
         if self.current:
@@ -474,7 +663,7 @@ class VaultApp(App):
         stats = {"run": run.stem[:10] if run else "",
                  "done": sum(1 for t in tickets if t["status"] in vn.DONE_STATUSES),
                  "total": len(tickets),
-                 "drafts": sum(len(t["drafts"]) for t in tickets)}
+                 "drafts": len(pending_drafts(all_tickets(self.vault)))}   # across all tickets, not just today's run
         self.call_from_thread(self.show_agents, tabs, stats)
 
     def show_agents(self, tabs, stats):
@@ -498,10 +687,40 @@ class VaultApp(App):
 
     def after_poll(self, where, sig):
         if where == self.where and self.sig is not None and sig != self.sig:
+            if where == SEARCH:   # keep the typed query; rerun it on the changed notes
+                self.sig = sig
+                self.search_now()
+                return
             idx = [w for _, w in self.sections].index(where)
             self.load_section(self.sections[idx][0], where)
             if self.current:
                 self.show_preview(self.current)
+
+    # search ──
+    def search_now(self):
+        self.run_search(self.query_one("#filter", Input).value)
+
+    @work(thread=True, exclusive=True, group="search")
+    def run_search(self, query):
+        if not FZF:
+            self.call_from_thread(self.notify, "fzf not found: install it to search", severity="warning")
+            return
+        sig = signature(self.vault, SEARCH)
+        if self.index is None or sig != self.index_sig:   # re-read the notes only when they changed
+            self.index = build_index(self.vault)
+            self.index_sig = sig
+        rows = search_rows(self.vault, self.index, query) if query.strip() else []
+        if not get_current_worker().is_cancelled:
+            self.call_from_thread(self.show_results, rows)
+
+    def show_results(self, rows):
+        if self.where != SEARCH:
+            return
+        self.rows, self.by_key = rows, {r[0]: r for r in rows}
+        n = len(rows)
+        self.query_one("#notes").border_subtitle = (f"{n}{'+' if n == SEARCH_MAX else ''} matches"
+                                                    if rows else "press / to search every note")
+        self.apply_filter()
 
     # actions ──
     def action_filter(self):
@@ -515,7 +734,12 @@ class VaultApp(App):
         self.query_one("#notes").focus()
 
     def on_input_changed(self, event):
-        self.apply_filter(self.current)
+        if self.where == SEARCH:   # debounce: wait for a pause in typing
+            if self.search_timer:
+                self.search_timer.stop()
+            self.search_timer = self.set_timer(0.25, self.search_now)
+        else:
+            self.apply_filter(self.current)
 
     def on_input_submitted(self, event):
         self.query_one("#notes").focus()
@@ -529,10 +753,10 @@ class VaultApp(App):
         (getattr(w, "action_cursor_up", None) or getattr(w, "action_scroll_up", lambda: None))()
 
     def current_file(self):
-        if self.current and not self.current.startswith("missing:"):
-            return self.current
-        self.notify("no note selected", severity="warning")
-        return None
+        path = self.cur_file()
+        if not path:
+            self.notify("no note selected", severity="warning")
+        return path
 
     def action_glow(self):
         path = self.current_file()
@@ -545,18 +769,80 @@ class VaultApp(App):
         if path:
             with self.suspend():
                 subprocess.run([EDITOR, path])
-            self.show_preview(path, force=True)
+            self.show_preview(self.current, force=True)
 
     def action_open_url(self):
-        row = self.by_key.get(self.current or "")
+        row = self.row_of(self.current or "")
         if row and row[4]:
             subprocess.Popen(["open", row[4]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             self.notify("no url on this note", severity="warning")
 
+    def action_open_obsidian(self):
+        path = self.current_file()
+        if path:
+            subprocess.Popen(["open", f"obsidian://open?path={quote(str(path))}"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # wikilinks ──
+    def action_links(self):
+        path = self.current_file()
+        if not path:
+            return
+        targets = note_links(Path(path).read_text(errors="replace"))
+        if not targets:
+            self.notify("no links in this note"); return
+        names, items = link_index(self.vault), []
+        for t in targets:
+            hits = resolve_link(names, self.vault, t)
+            if not hits:
+                items.append((f"{t}  (not found)", None))
+            elif len(hits) > 1:
+                items.append((f"{t}  → {hits[0].relative_to(self.vault)}  (+{len(hits) - 1} more)", hits[0]))
+            else:
+                items.append((f"{t}  → {hits[0].relative_to(self.vault)}", hits[0]))
+        self.push_screen(LinkPicker(items), self.open_link)
+
+    def open_link(self, path):
+        if path:
+            self.open_note(path)
+
+    def open_note(self, path):
+        """Show a linked note in the preview, keeping the way back (backspace)."""
+        key = str(path)
+        if key == self.current:
+            return
+        if self.current:
+            self.history.append(self.current)
+        self.detached[key] = self.note_row(path)
+        self.show_preview(key)
+        self.query_one("#preview-scroll").focus()
+
+    def note_row(self, path):
+        """A row for a note that isn't in the table; tickets get their summary."""
+        key = str(path)
+        if path.name == f"{path.parent.name}.md" and path.parent.parent == self.vault / "raw/tickets":
+            t = vn.read_ticket(self.vault, path.parent.name)
+            return (key, [], "", {"kind": "ticket", "ticket": t}, t["url"])
+        m = vn.note_meta(path)
+        return (key, [], "", {"kind": "note", "path": path, "meta": m}, m["url"])
+
+    def action_back(self):
+        if self.history:
+            self.show_preview(self.history.pop())
+        elif self.current in self.detached:   # back to the row the table is on
+            self.detached.clear()
+            table = self.query_one("#notes", DataTable)
+            try:
+                key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+            except Exception:
+                key = None
+            self.show_preview(key)
+            table.focus()
+
     def action_summary(self):
         self.summary = not self.summary
-        row = self.by_key.get(self.current or "")
+        row = self.row_of(self.current or "")
         if self.summary and not (row and row[3].get("kind") == "ticket"):
             self.notify("summary shows on tickets (Today / Tickets)")
         self.show_preview(self.current, force=True)
