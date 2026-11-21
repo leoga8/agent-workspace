@@ -49,10 +49,10 @@ SEARCH_MAX = 200   # search results shown
 # (label, folder relative to the vault). None = today's run; "@…" = a view built from several notes.
 ATTENTION, SEARCH = "@attention", "@search"
 SECTIONS = [
-    ("Today",     None),
     ("Attention", ATTENTION),
-    ("Tickets",   "raw/tickets"),
+    ("Today",     None),
     ("Runs",      "raw/runs"),
+    ("Tickets",   "raw/tickets"),
     ("Search",    SEARCH),
 ]
 SKIP_DIRS = {"templates"}   # not searched or followed by links
