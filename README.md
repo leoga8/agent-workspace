@@ -23,6 +23,7 @@ Pairs with [dotfiles](https://github.com/leoga8/dotfiles), which installs the to
 | `orchestration/` | ticket runs: the state machine and the tickets orchestration |
 | `pipelines/`, `workflows/` | generic domains: `code`, `database`, `meta`, `obsidian` |
 | `automation/` | `work-morning.sh`, `check-tickets.sh`, `rex-worker.sh`, `vault.py`, `token-report.py`, settings |
+| `viewer/ticket-viewer.html` | a read-only browser view of a tickets folder (Attention, Tickets, Search); one file, no server, no network. Open it in Chrome and choose the folder. Teammates get it through the shared repo |
 | `templates/vault/` | note templates for a new vault |
 | `setup.zsh` | sets up a laptop (run `--check` first) |
 

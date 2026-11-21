@@ -12,6 +12,7 @@
 /automation/safety-terms.txt
 !/orchestration/
 !/templates/
+!/viewer/
 
 # planner: the framework and the personal planner; job planners stay out
 !/planner/
