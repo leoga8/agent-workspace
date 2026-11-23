@@ -214,4 +214,4 @@ When a ticket's work is done (or the user asks), draft any external updates unde
 - [ ] <source>: <comment | reply | set_status> — <content or target status>
 ```
 
-Show the drafts and send **only** the ones the user explicitly approves, per `<root>/planner/sources.md`. After sending, tick the box and add the time.
+Show the drafts and send **only** the ones the user explicitly approves, per `<root>/planner/sources.md`. After sending, tick the box and add the time. When the sent draft is a `set_status`, also set the note's `external_status` frontmatter to the new state, so the note matches the source without a re-fetch.

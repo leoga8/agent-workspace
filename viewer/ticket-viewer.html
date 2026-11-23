@@ -80,6 +80,7 @@ mark { background: var(--hit); color: inherit; border-radius: 2px; }
 #body h3 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 20px 0 6px; }
 .plan { margin: 0; padding-left: 22px; }
 .plan li.done { color: var(--green); }
+.plan li.failed { color: var(--red); }
 .plan li.active { font-weight: 600; }
 .plan li.active::marker { color: var(--accent); }
 .plan .succ { color: var(--dim); font-weight: 400; }
@@ -162,7 +163,7 @@ footer { padding: 4px 14px; font-size: 12px; color: var(--dim); background: var(
 
 <script>
 // ==== core ====  (no DOM access in this part)
-const VERSION = '0.2';
+const VERSION = '0.3';
 const OPENABLE = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'json', 'log'];   // anything else is saved, never run in the page
 const CLOSED_LOCAL = ['done', 'reported', 'cancelled'];
 const CLOSED_EXTERNAL = ['Done', 'Canceled', 'closed'];
@@ -257,10 +258,11 @@ function parseTicket(id, rawText, mtime, results) {
     if (steps.length) {
       for (const [, s, body] of steps) {
         const done = s.includes('✅') || s.includes('skipped');
-        const active = !done && s.includes('⏸');
-        const clean = s.replace(/^\d+\s*[✅⏸]?\s*[—:-]?\s*|[✅⏸]/g, '').trim();
+        const failed = s.includes('❌');
+        const active = !done && !failed && s.includes('⏸');
+        const clean = s.replace(/^\d+\s*[✅⏸❌]?\s*[—:-]?\s*|[✅⏸❌]/g, '').trim();
         const succ = /^\s*- success:\s*(.+)$/m.exec(body);
-        t.plan.push({ text: clean || s, done, active, success: succ ? succ[1].trim() : '' });
+        t.plan.push({ text: clean || s, done, active, failed, success: succ ? succ[1].trim() : '' });
       }
     } else {
       for (const line of sec.split('\n')) {
@@ -273,7 +275,7 @@ function parseTicket(id, rawText, mtime, results) {
       }
     }
     if (['running', 'blocked'].includes(t.status) && !t.plan.some(p => p.active)) {
-      const first = t.plan.find(p => !p.done);
+      const first = t.plan.find(p => !p.done && !p.failed);
       if (first) first.active = true;
     }
   }
@@ -538,7 +540,7 @@ function ticketSummaryHtml(t, model) {
   if (t.ask || t.created) sec('Ask', '<div>' + (t.ask ? inline(t.ask, model) : '') + (t.created ? '<div class="dim">created ' + esc(t.created) + '</div>' : '') + '</div>');
   if (t.plan.length || t.meta) {
     sec('Plan', (t.meta ? '<div class="dim">' + esc(t.meta) + '</div>' : '') + '<ol class="plan">' +
-      t.plan.map(p => '<li class="' + (p.done ? 'done' : p.active ? 'active' : '') + '">' + inline(p.text, model) +
+      t.plan.map(p => '<li class="' + (p.done ? 'done' : p.failed ? 'failed' : p.active ? 'active' : '') + '">' + inline(p.text, model) +
         (p.active && p.success ? '<div class="succ">success: ' + esc(p.success) + '</div>' : '') + '</li>').join('') + '</ol>');
   }
   if (t.drafts.length) {
