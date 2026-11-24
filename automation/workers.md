@@ -14,6 +14,10 @@
 - With Rex: run it as a worker (below) and tell the user its tab name; they answer its decision points in that tab.
 - Without Rex: run it as a `deep` subagent. At each decision point it writes the question to its result file and stops; ask the user, then resume it with a new `deep` subagent given the answer and the previous result file.
 
+## what a worker prompt adds
+
+Every worker prompt ends with the two lines `orchestration/tickets/prompts/tickets.md` gives: questions and approvals start with `[<ticket-id>]`, and the result file ends with a `learnings:` line. The caller reads that line and logs it in `self-improvement/` when the run closes. The worker never writes there itself.
+
 ## one worker
 
 ```sh

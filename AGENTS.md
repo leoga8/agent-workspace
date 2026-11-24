@@ -1,3 +1,5 @@
+Before anything else, read `RULES.md` in this folder and follow it.
+
 # ~/Documents/code (agent-workspace)
 
 - This folder is the `agent-workspace` git repo, and its `.gitignore` is an allowlist.

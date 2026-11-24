@@ -87,7 +87,7 @@ approval: true
 
 **Subfolders** — create `context/` and/or `tools/` only if requested and only once they will hold files — no empty folders.
 
-**Discovery** — no shim is needed. Planners find the new workflow automatically from its folder, `# title` and `>` description, as long as its domain is listed in the planner's `data/config.md` (`~/Documents/code/planner/*/config.md`).
+**Discovery** — no shim is needed. Planners find the new workflow automatically from its folder, `# title` and `>` description, as long as its domain is listed in the planner's `config.md` (`~/Documents/code/planner/*/config.md`).
 
 ---
 

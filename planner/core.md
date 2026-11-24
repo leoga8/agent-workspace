@@ -7,6 +7,7 @@
 ## operating rules
 
 - Read the planner's `config.md` before anything else — `root`, `tickets_path`, `vault_path`, `domains` and `sources` are machine-specific
+- If `<root>/RULES.md` exists, read and follow it
 - If a required config value is a placeholder, ask the user for it, save it to the config, and confirm before continuing
 - **Paths:** every path in this document is written `<root>/...`. Paths inside workflow and pipeline prompts are either absolute (`~/Documents/code/...`) or relative to `<root>` (e.g. `workflows/<domain>/...`) — resolve relative ones against `<root>`
 - Never run a workflow or pipeline without first saying which one and why, and getting confirmation
