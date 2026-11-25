@@ -212,6 +212,7 @@ def read_results(folder, keep=2, lines=15):
 
 CLOSED_LOCAL    = ("done", "reported", "cancelled")
 CLOSED_EXTERNAL = ("Done", "Canceled", "closed")
+DRAFTS_CLOSED   = ("reported", "cancelled")   # a `done` ticket may still wait for approval of its drafts
 
 def external_mismatch(t):
     if not t["external"]: return False

@@ -58,6 +58,16 @@ Append under `## log`, newest last:
 
 ---
 
+## open drafts when a ticket closes
+
+A ticket's drafts are finished only when it is `reported` or `cancelled`. At `done` they may still wait for approval, so leave them open.
+
+- `done → reported`: mark every draft still `- [ ]` as `- [-]` and end it with `(cancelled YYYY-MM-DD: not sent when reported)`.
+- any → `cancelled`: mark every draft still `- [ ]` as `- [-]` and end it with `(cancelled YYYY-MM-DD: ticket cancelled)`.
+- The date comes from `date`. This applies to every route into these states, including the reconcile step when a ticket was closed outside the run.
+
+---
+
 ## dry-run policy
 
 Orchestration never sends anything outside the vault on its own.

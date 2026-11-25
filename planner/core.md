@@ -216,3 +216,7 @@ When a ticket's work is done (or the user asks), draft any external updates unde
 ```
 
 Show the drafts and send **only** the ones the user explicitly approves, per `<root>/planner/sources.md`. After sending, tick the box and add the time. When the sent draft is a `set_status`, also set the note's `external_status` frontmatter to the new state, so the note matches the source without a re-fetch.
+
+A multi-line draft is written as nested bullets directly under its `- [ ]` line, with no blank line between them. When the vault is Obsidian, a blank line followed by indented paragraphs makes the draft vanish from the rendered note.
+
+When the user says a draft will not be sent, mark it `- [-]` in the same turn and end it with `(cancelled YYYY-MM-DD: <reason>)`, with the date taken from `date`. Use the user's reason, or "dropped by user" if they gave none; do not ask for one. Do not wait for confirmation and do not write a replacement unless the user asks for one. This replaces leaving a dropped draft unticked: the vault viewer and parser list only `- [ ]` drafts as pending, so an unticked dropped draft would keep showing as waiting for approval.

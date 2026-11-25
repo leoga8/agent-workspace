@@ -129,8 +129,8 @@ def all_tickets(vault):
     return [vn.read_ticket(vault, f.parent.name) for f in section_files(vault, "raw/tickets")]
 
 def pending_drafts(tickets):
-    """[(ticket, draft)] for every unapproved draft on a ticket that's still open."""
-    return [(t, d) for t in tickets if t["status"] not in vn.CLOSED_LOCAL for d in t["drafts"]]
+    """[(ticket, draft)] for every unapproved draft on a ticket whose drafts are still open (not reported or cancelled)."""
+    return [(t, d) for t in tickets if t["status"] not in vn.DRAFTS_CLOSED for d in t["drafts"]]
 
 ATTENTION_COLS = [(" ", 1), "ID", ("Title", TITLE_W), "Why", "Due", "Upd"]
 

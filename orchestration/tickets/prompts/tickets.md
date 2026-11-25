@@ -107,7 +107,7 @@ For each `approved` ticket, in order:
 
 ### 6. outbound drafts
 
-List every unsent draft across the run, grouped by ticket. Ask which to send. Send only the approved ones per `planner/sources.md`, tick them, and move fully-handled tickets `done → reported`.
+List every unsent draft across the run, grouped by ticket. Ask which to send. Send only the approved ones per `planner/sources.md`, tick them, and move fully-handled tickets `done → reported`. Before each move to `reported`, mark the ticket's remaining open drafts cancelled as `orchestration/state-machine.md` ("open drafts when a ticket closes") says.
 
 ### 7. close the run
 

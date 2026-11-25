@@ -220,6 +220,8 @@ function ago(d) {
   return Math.floor(m / 1440) + 'd';
 }
 function isClosed(t) { return CLOSED_LOCAL.includes(t.status); }
+// a `done` ticket may still wait for approval of its drafts; only reported or cancelled ones are finished
+function draftsClosed(t) { return t.status === 'reported' || t.status === 'cancelled'; }
 function externalMismatch(t) {
   return !!t.external && isClosed(t) !== CLOSED_EXTERNAL.includes(t.external);
 }
@@ -357,7 +359,7 @@ function sortTickets(tickets) {
 }
 
 function pendingDrafts(tickets) {
-  return tickets.filter(t => !isClosed(t)).flatMap(t => t.drafts.map(d => ({ t, d })));
+  return tickets.filter(t => !draftsClosed(t)).flatMap(t => t.drafts.map(d => ({ t, d })));
 }
 
 // What needs you: failed, blocked, drafts to approve, overdue or due today, source out of step.
@@ -365,7 +367,7 @@ function attentionRows(tickets) {
   const found = [];
   for (const t of tickets) {
     const closed = isClosed(t), reasons = [];
-    const drafts = closed ? [] : t.drafts;
+    const drafts = draftsClosed(t) ? [] : t.drafts;
     if (t.status === 'failed') reasons.push([0, 'failed', 'red']);
     if (t.status === 'blocked') reasons.push([1, 'blocked', 'yellow']);
     if (t.status === 'awaiting_approval' && !drafts.length) reasons.push([2, 'approval', 'yellow']);
