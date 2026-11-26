@@ -7,7 +7,7 @@
 vault.py — Read-only Textual viewer for the work vault. Previews use Rich's markdown; `g` opens a note in glow's pager.
 Tabs: Today's run, Attention (what needs you), Tickets, Runs, and Search (fzf over every note).
 Usage: uv run ~/Documents/code/automation/vault.py [--root ~/Downloads/code]
-Settings (environment): VAULT_PREVIEW=rich|glow (default rich), VAULT_GLOW_STYLE, VAULT_GLOW_WIDTH (pager width, default 100), VAULT_EDITOR.
+Settings (environment): VAULT_PREVIEW=rich|glow (default rich), VAULT_GLOW_STYLE, VAULT_GLOW_WIDTH (pager width, default 150), VAULT_EDITOR.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ import vault_notes as vn
 GLOW       = shutil.which("glow")
 FZF        = shutil.which("fzf")
 GLOW_STYLE = os.environ.get("VAULT_GLOW_STYLE", "dark")
-GLOW_WIDTH = os.environ.get("VAULT_GLOW_WIDTH", "100")   # `g` pager: wider margin and table cells
+GLOW_WIDTH = os.environ.get("VAULT_GLOW_WIDTH", "150")   # `g` pager: wider margin and table cells
 PREVIEW    = os.environ.get("VAULT_PREVIEW", "rich")     # "glow" renders the side preview with glow instead
 EDITOR     = os.environ.get("VAULT_EDITOR", "nvim")
 POLL_S     = 3   # seconds between change checks
