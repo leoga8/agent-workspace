@@ -791,7 +791,9 @@ class VaultApp(App):
             return
         targets = note_links(Path(path).read_text(errors="replace"))
         if not targets:
-            self.notify("no links in this note"); return
+            try:    shown = Path(path).relative_to(self.vault)
+            except ValueError: shown = Path(path)
+            self.notify(f"no [[links]] in {shown}"); return
         names, items = link_index(self.vault), []
         for t in targets:
             hits = resolve_link(names, self.vault, t)
