@@ -5,7 +5,7 @@
 # ///
 """
 vault.py — Read-only Textual viewer for the work vault. Previews use Rich's markdown; `g` opens a note in glow's pager.
-Tabs: Today's run, Attention (what needs you), Tickets, Runs, and Search (fzf over every note).
+Tabs: Attention (what needs you), Today's run, Runs, Tickets, Search (fzf over every note), and Improve (the entries in <root>/self-improvement).
 Usage: uv run ~/Documents/code/automation/vault.py [--root ~/Downloads/code]
 Settings (environment): VAULT_PREVIEW=rich|glow (default rich), VAULT_GLOW_STYLE, VAULT_GLOW_WIDTH (pager width, default 140), VAULT_EDITOR.
 """
@@ -50,13 +50,14 @@ AGENT_POLL_S = 10  # seconds between agent status checks (a few rex calls each)
 SEARCH_MAX = 200   # search results shown
 
 # (label, folder relative to the vault). None = today's run; "@…" = a view built from several notes.
-ATTENTION, SEARCH = "@attention", "@search"
+ATTENTION, SEARCH, IMPROVE = "@attention", "@search", "@improve"
 SECTIONS = [
     ("Attention", ATTENTION),
     ("Today",     None),
     ("Runs",      "raw/runs"),
     ("Tickets",   "raw/tickets"),
     ("Search",    SEARCH),
+    ("Improve",   IMPROVE),
 ]
 SKIP_DIRS = {"templates"}   # not searched or followed by links
 
@@ -135,6 +136,40 @@ def pending_drafts(tickets):
     """[(ticket, draft)] for every unapproved draft on a ticket whose drafts are still open (not reported or cancelled)."""
     return [(t, d) for t in tickets if t["status"] not in vn.DRAFTS_CLOSED for d in t["drafts"]]
 
+def improve_files():
+    """Entries in <root>/self-improvement, newest first (done/ is a subfolder and is not listed)."""
+    base = vn.WORK_DIR / "self-improvement"
+    return sorted(base.glob("*.md"), reverse=True) if base.is_dir() else []
+
+def improve_entry(f):
+    """status, target, tracked flag, date and first line of one self-improvement entry."""
+    fm = vn.read_frontmatter(f)
+    first = ""
+    try:
+        text = f.read_text(errors="replace")
+        body = text.split("\n---", 1)[1] if text.startswith("---") and "\n---" in text[3:] else text
+        first = next((l.strip() for l in body.splitlines() if l.strip() and l.strip() != "---"), "")
+    except OSError:
+        pass
+    d = f.stem[:8]
+    return {"status": fm.get("status") or "new", "target": fm.get("target", ""),
+            "tracked": str(fm.get("tracked", "")).lower() == "true", "first": first,
+            "date": f"{d[:4]}-{d[4:6]}-{d[6:8]}" if d.isdigit() and len(d) == 8 else f.stem[:10]}
+
+IMPROVE_COLS = [(" ", 1), "Date", ("Target", 28), "Note"]
+
+def improve_rows():
+    rows = []
+    for f in improve_files():
+        e = improve_entry(f)
+        new = e["status"] == "new"
+        target = ("↗ " if e["tracked"] else "") + (e["target"] or "—")
+        cells = [Text("●", "yellow" if new else "dim"), Text(e["date"], "dim"),
+                 Text(clip(target, 28), "" if new else "dim"), Text(clip(e["first"], 70), "" if new else "dim")]
+        rows.append((str(f), cells, f"{f.stem} {e['target']} {e['first']} {e['status']}".lower(),
+                     {"kind": "note", "path": f}, ""))
+    return rows
+
 ATTENTION_COLS = [(" ", 1), "ID", ("Title", TITLE_W), "Why", "Due", "Upd"]
 
 def attention_rows(vault, tickets):
@@ -153,6 +188,8 @@ def attention_rows(vault, tickets):
         closed = t["status"] in vn.CLOSED_LOCAL
         drafts = pending_drafts([t])
         reasons = []   # (priority, text, style)
+        if drafts:   # one row per ticket, however many drafts it holds
+            reasons.append((2, f"draft · {drafts[0][1]['label']}"[:30] if len(drafts) == 1 else f"{len(drafts)} drafts", "yellow"))
         if t["status"] == "failed":  reasons.append((0, "failed", "red"))
         if t["status"] == "blocked": reasons.append((1, "blocked", "yellow"))
         if t["status"] == "awaiting_approval" and not drafts: reasons.append((2, "approval", "yellow"))
@@ -163,11 +200,16 @@ def attention_rows(vault, tickets):
             reasons.sort()
             found.append((reasons[0][0], t["id"], row(
                 t, str(path), " · ".join(r[1] for r in reasons), reasons[0][2],
-                " ".join(r[1] for r in reasons), {"kind": "ticket", "ticket": t})))
-        for i, (_, d) in enumerate(drafts):
-            found.append((2, t["id"], row(
-                t, f"{path}|draft{i}", f"draft · {d['label']}"[:30], "yellow", f"draft {d['label']}",
-                {"kind": "ticket", "ticket": t, "file": str(path)})))
+                " ".join(r[1] for r in reasons) + " " + " ".join(d["label"] for _, d in drafts),
+                {"kind": "ticket", "ticket": t})))
+    waiting = [f for f in improve_files() if improve_entry(f)["status"] == "new"]
+    if waiting:   # one row for the self-improvement entries a retro hasn't handled
+        newest = waiting[0]
+        cells = [Text("●", "yellow"), Text("—", "dim"), Text("Self-improvement"),
+                 Text(f"{len(waiting)} waiting", "yellow"), Text(""),
+                 Text(vn.ago(datetime.fromtimestamp(newest.stat().st_mtime)), style="dim")]
+        found.append((6, "~improve", (str(newest), cells, "self-improvement retro learnings waiting",
+                                      {"kind": "note", "path": newest}, "")))
     return [r for _, _, r in sorted(found, key=lambda x: x[:2])]
 
 SEARCH_COLS = [("Note", 24), ("Ln", 4), ("Match", 44)]
@@ -222,6 +264,11 @@ def build_section(vault, name, where):
         rows = attention_rows(vault, all_tickets(vault))
         return f"{len(rows)} need you", ATTENTION_COLS, rows
 
+    if where == IMPROVE:
+        files = improve_files()
+        new = sum(1 for f in files if improve_entry(f)["status"] == "new")
+        return f"{new} new · {len(files)} open  (↗ = a tracked file: handle it on the personal laptop)", IMPROVE_COLS, improve_rows()
+
     files = section_files(vault, where)
     if where == "raw/tickets":
         tickets = [vn.read_ticket(vault, f.parent.name) for f in files]
@@ -255,7 +302,9 @@ def signature(vault, where):
         elif where == SEARCH:
             files = vault_files(vault)
         elif where == ATTENTION:
-            files = section_files(vault, "raw/tickets")
+            files = section_files(vault, "raw/tickets") + improve_files()
+        elif where == IMPROVE:
+            files = improve_files()
         else:
             files = section_files(vault, where)
         mt = [f.stat().st_mtime for f in files if f.exists()]
