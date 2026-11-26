@@ -4,9 +4,10 @@
 # dependencies = ["textual>=1.0"]
 # ///
 """
-vault.py — Read-only Textual viewer for the work vault, previews rendered with glow.
+vault.py — Read-only Textual viewer for the work vault. Previews use Rich's markdown; `g` opens a note in glow's pager.
 Tabs: Today's run, Attention (what needs you), Tickets, Runs, and Search (fzf over every note).
 Usage: uv run ~/Documents/code/automation/vault.py [--root ~/Downloads/code]
+Settings (environment): VAULT_PREVIEW=rich|glow (default rich), VAULT_GLOW_STYLE, VAULT_GLOW_WIDTH (pager width, default 100), VAULT_EDITOR.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import sys
 import textwrap
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -41,6 +42,8 @@ import vault_notes as vn
 GLOW       = shutil.which("glow")
 FZF        = shutil.which("fzf")
 GLOW_STYLE = os.environ.get("VAULT_GLOW_STYLE", "dark")
+GLOW_WIDTH = os.environ.get("VAULT_GLOW_WIDTH", "100")   # `g` pager: wider margin and table cells
+PREVIEW    = os.environ.get("VAULT_PREVIEW", "rich")     # "glow" renders the side preview with glow instead
 EDITOR     = os.environ.get("VAULT_EDITOR", "nvim")
 POLL_S     = 3   # seconds between change checks
 AGENT_POLL_S = 10  # seconds between agent status checks (a few rex calls each)
@@ -260,14 +263,17 @@ def signature(vault, where):
     except OSError:
         return None
 
+OSC8 = re.compile(r"\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)")
+
 def render_markdown(path, width):
-    """glow output as Rich Text, or Rich's own Markdown if glow isn't installed."""
-    if GLOW:
+    """Rich's own Markdown (default), or glow's output as Rich Text when VAULT_PREVIEW=glow and glow is installed."""
+    if GLOW and PREVIEW == "glow":
         # stdin must not be inherited: glow reads a non-tty stdin instead of the file
         r = subprocess.run([GLOW, "-s", GLOW_STYLE, "-w", str(width), str(path)],
                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
-            return Text.from_ansi(r.stdout)
+            # glow turns links into terminal hyperlinks (OSC 8); Rich can't read them and would print their text
+            return Text.from_ansi(OSC8.sub("", r.stdout))
     text = Path(path).read_text(errors="replace")
     if text.startswith("---\n") and "\n---" in text[3:]:
         text = text[3:].split("\n---", 1)[1]   # drop the frontmatter only
@@ -381,6 +387,17 @@ def note_links(text):
         target = raw.split("|", 1)[0].split("#", 1)[0].strip()
         if target and target not in out:
             out.append(target)
+    return out
+
+MDLINK = re.compile(r'(?<!\!)\[([^\]\n]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+
+def md_links(text):
+    """[(label, target)] for [label](target) links, in order, without anchors-only targets."""
+    out = []
+    for label, target in MDLINK.findall(text):
+        if target.startswith("#") or (label, target) in out:
+            continue
+        out.append((label.strip() or target, target))
     return out
 
 def link_index(vault):
@@ -762,7 +779,7 @@ class VaultApp(App):
         path = self.current_file()
         if path and GLOW:
             with self.suspend():
-                subprocess.run([GLOW, "-p", "-s", GLOW_STYLE, path])
+                subprocess.run([GLOW, "-p", "-s", GLOW_STYLE, "-w", GLOW_WIDTH, path])
 
     def action_edit(self):
         path = self.current_file()
@@ -789,25 +806,48 @@ class VaultApp(App):
         path = self.current_file()
         if not path:
             return
-        targets = note_links(Path(path).read_text(errors="replace"))
-        if not targets:
-            try:    shown = Path(path).relative_to(self.vault)
-            except ValueError: shown = Path(path)
-            self.notify(f"no [[links]] in {shown}"); return
-        names, items = link_index(self.vault), []
-        for t in targets:
+        note = Path(path)
+        text = note.read_text(errors="replace")
+        names, items, seen = link_index(self.vault), [], set()   # items: (label, ("note"|"open", Path|str) or None)
+        def rel(p):
+            try:    return p.relative_to(self.vault)
+            except ValueError: return p
+        for t in note_links(text):                                # [[wikilinks]]
             hits = resolve_link(names, self.vault, t)
             if not hits:
                 items.append((f"{t}  (not found)", None))
-            elif len(hits) > 1:
-                items.append((f"{t}  → {hits[0].relative_to(self.vault)}  (+{len(hits) - 1} more)", hits[0]))
             else:
-                items.append((f"{t}  → {hits[0].relative_to(self.vault)}", hits[0]))
+                more = f"  (+{len(hits) - 1} more)" if len(hits) > 1 else ""
+                items.append((f"{t}  → {rel(hits[0])}{more}", ("note", hits[0])))
+                seen.add(hits[0])
+        for label, target in md_links(text):                      # [label](path or url)
+            if re.match(r"[a-z][a-z0-9+.-]*://", target, re.I) and not target.lower().startswith("file://"):
+                items.append((f"{label}  → {target}", ("open", target)))
+                continue
+            p = Path(unquote(target.removeprefix("file://")))
+            p = p if p.is_absolute() else note.parent / p
+            if not p.is_file():
+                items.append((f"{label}  (not found: {target})", None))
+            elif p.suffix == ".md":
+                items.append((f"{label}  → {rel(p)}", ("note", p))); seen.add(p)
+            else:
+                items.append((f"{label}  → {rel(p)}  (opens outside)", ("open", str(p))))
+        if note.name == f"{note.parent.name}.md":                 # a ticket note: the other notes in its folder
+            for p in sorted(note.parent.glob("*.md")):
+                if p != note and p not in seen:
+                    items.append((f"{p.name}  (in this folder)", ("note", p)))
+        if not items:
+            self.notify(f"no links in {rel(note)}"); return
         self.push_screen(LinkPicker(items), self.open_link)
 
-    def open_link(self, path):
-        if path:
-            self.open_note(path)
+    def open_link(self, target):
+        if not target:
+            return
+        kind, value = target
+        if kind == "note":
+            self.open_note(value)
+        else:
+            subprocess.Popen(["open", value], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def open_note(self, path):
         """Show a linked note in the preview, keeping the way back (backspace)."""
